@@ -10,7 +10,12 @@ from rich.markdown import Markdown
 from ..core.config import AICliConfig
 from ..providers.factory import ProviderFactory
 from ..providers.base import AIMessage
-from ..mcp.client import MCPClient
+try:
+    from ..mcp.client import MCPClient
+    MCP_AVAILABLE = True
+except ImportError:
+    from ..mcp.simple_client import SimpleGitHubClient, SimpleGitLabClient
+    MCP_AVAILABLE = False
 
 app = typer.Typer(
     name="ai-cli",
@@ -186,22 +191,57 @@ def mcp_connect(
 
 
 async def _mcp_connect_async(service: str, token: str, url: Optional[str]):
-    async with MCPClient() as mcp_client:
+    if MCP_AVAILABLE:
+        async with MCPClient() as mcp_client:
+            try:
+                if service == "gitlab":
+                    await mcp_client.connect_gitlab(token, url or "https://gitlab.com")
+                elif service == "github":
+                    await mcp_client.connect_github(token, url or "https://api.github.com")
+                else:
+                    console.print(f"[red]Unknown service: {service}[/red]")
+                    raise typer.Exit(1)
+                
+                console.print(f"[green]Successfully connected to {service}[/green]")
+                
+                # Test connection by listing resources
+                resources = await mcp_client.list_resources(service)
+                console.print(f"Available resources: {len(resources)}")
+                
+            except Exception as e:
+                console.print(f"[red]Connection failed: {e}[/red]")
+                raise typer.Exit(1)
+    else:
+        # Use simplified client
         try:
-            if service == "gitlab":
-                await mcp_client.connect_gitlab(token, url or "https://gitlab.com")
-            elif service == "github":
-                await mcp_client.connect_github(token, url or "https://api.github.com")
+            if service == "github":
+                client = SimpleGitHubClient(token)
+                try:
+                    is_valid = await client.validate_connection()
+                    if is_valid:
+                        console.print(f"[green]Successfully connected to {service}[/green]")
+                        repos = await client.get_user_repos()
+                        console.print(f"Found {len(repos)} repositories")
+                    else:
+                        console.print(f"[red]Failed to connect to {service}[/red]")
+                        raise typer.Exit(1)
+                finally:
+                    await client.close()
+            elif service == "gitlab":
+                client = SimpleGitLabClient(token, url or "https://gitlab.com")
+                try:
+                    is_valid = await client.validate_connection()
+                    if is_valid:
+                        console.print(f"[green]Successfully connected to {service}[/green]")
+                    else:
+                        console.print(f"[red]Failed to connect to {service}[/red]")
+                        raise typer.Exit(1)
+                finally:
+                    await client.close()
             else:
                 console.print(f"[red]Unknown service: {service}[/red]")
                 raise typer.Exit(1)
-            
-            console.print(f"[green]Successfully connected to {service}[/green]")
-            
-            # Test connection by listing resources
-            resources = await mcp_client.list_resources(service)
-            console.print(f"Available resources: {len(resources)}")
-            
+                
         except Exception as e:
             console.print(f"[red]Connection failed: {e}[/red]")
             raise typer.Exit(1)
@@ -226,41 +266,118 @@ async def _mcp_search_async(
 ):
     mcp_config = config.get_mcp_config()
     
-    async with MCPClient() as mcp_client:
-        try:
-            if service == "gitlab":
-                gitlab_config = mcp_config.gitlab
-                await mcp_client.connect_gitlab(
-                    gitlab_config.auth_token, 
-                    gitlab_config.base_url
-                )
-            elif service == "github":
-                github_config = mcp_config.github
-                await mcp_client.connect_github(
-                    github_config.auth_token, 
-                    github_config.base_url
-                )
-            
-            results = await mcp_client.search_code(service, query, owner, repo)
-            
-            if results:
-                table = Table(title=f"Search Results from {service}")
-                table.add_column("Repository", style="cyan")
-                table.add_column("File", style="yellow")
-                table.add_column("Line", style="green")
-                table.add_column("Preview", style="white")
-                
-                for result in results[:10]:  # Limit to first 10 results
-                    table.add_row(
-                        result.get("repository", "N/A"),
-                        result.get("file", "N/A"),
-                        str(result.get("line", "N/A")),
-                        result.get("preview", "N/A")[:50] + "..."
+    if MCP_AVAILABLE:
+        async with MCPClient() as mcp_client:
+            try:
+                if service == "gitlab":
+                    gitlab_config = mcp_config.gitlab
+                    await mcp_client.connect_gitlab(
+                        gitlab_config.auth_token, 
+                        gitlab_config.base_url
+                    )
+                elif service == "github":
+                    github_config = mcp_config.github
+                    await mcp_client.connect_github(
+                        github_config.auth_token, 
+                        github_config.base_url
                     )
                 
-                console.print(table)
+                results = await mcp_client.search_code(service, query, owner, repo)
+                
+                if results:
+                    table = Table(title=f"Search Results from {service}")
+                    table.add_column("Repository", style="cyan")
+                    table.add_column("File", style="yellow")
+                    table.add_column("Line", style="green")
+                    table.add_column("Preview", style="white")
+                    
+                    for result in results[:10]:  # Limit to first 10 results
+                        table.add_row(
+                            result.get("repository", "N/A"),
+                            result.get("file", "N/A"),
+                            str(result.get("line", "N/A")),
+                            result.get("preview", "N/A")[:50] + "..."
+                        )
+                    
+                    console.print(table)
+                else:
+                    console.print("[yellow]No results found[/yellow]")
+                    
+            except Exception as e:
+                console.print(f"[red]Search failed: {e}[/red]")
+                raise typer.Exit(1)
+    else:
+        # Use simplified client
+        try:
+            if service == "github":
+                github_config = mcp_config.github
+                client = SimpleGitHubClient(github_config.auth_token)
+                try:
+                    results_data = await client.search_code(query, owner, repo)
+                    
+                    if "error" in results_data:
+                        console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                        raise typer.Exit(1)
+                    
+                    results = results_data.get("results", [])
+                    total_count = results_data.get("total_count", 0)
+                    
+                    if results:
+                        table = Table(title=f"Search Results from {service} (Total: {total_count})")
+                        table.add_column("Repository", style="cyan")
+                        table.add_column("File", style="yellow")
+                        table.add_column("Path", style="green")
+                        table.add_column("Score", style="white")
+                        
+                        for result in results[:10]:  # Limit to first 10 results
+                            table.add_row(
+                                result.get("repository", "N/A"),
+                                result.get("file", "N/A"),
+                                result.get("path", "N/A")[:50] + "..." if len(result.get("path", "")) > 50 else result.get("path", "N/A"),
+                                str(result.get("score", "N/A"))
+                            )
+                        
+                        console.print(table)
+                    else:
+                        console.print("[yellow]No results found[/yellow]")
+                finally:
+                    await client.close()
+                        
+            elif service == "gitlab":
+                gitlab_config = mcp_config.gitlab
+                client = SimpleGitLabClient(gitlab_config.auth_token, gitlab_config.base_url)
+                try:
+                    results_data = await client.search_code(query, owner, repo)
+                    
+                    if "error" in results_data:
+                        console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                        raise typer.Exit(1)
+                    
+                    results = results_data.get("results", [])
+                    
+                    if results:
+                        table = Table(title=f"Search Results from {service}")
+                        table.add_column("Repository", style="cyan")
+                        table.add_column("File", style="yellow")
+                        table.add_column("Line", style="green")
+                        table.add_column("Preview", style="white")
+                        
+                        for result in results[:10]:  # Limit to first 10 results
+                            table.add_row(
+                                str(result.get("repository", "N/A")),
+                                result.get("file", "N/A"),
+                                str(result.get("line", "N/A")),
+                                result.get("preview", "N/A")[:50] + "..."
+                            )
+                        
+                        console.print(table)
+                    else:
+                        console.print("[yellow]No results found[/yellow]")
+                finally:
+                    await client.close()
             else:
-                console.print("[yellow]No results found[/yellow]")
+                console.print(f"[red]Unknown service: {service}[/red]")
+                raise typer.Exit(1)
                 
         except Exception as e:
             console.print(f"[red]Search failed: {e}[/red]")

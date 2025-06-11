@@ -1,0 +1,178 @@
+import asyncio
+from typing import Dict, List, Any, Optional
+import httpx
+
+
+class SimpleGitHubClient:
+    """Simplified GitHub client that works without MCP dependencies."""
+    
+    def __init__(self, token: str):
+        self.token = token
+        self.base_url = "https://api.github.com"
+        self.client = httpx.AsyncClient(
+            headers={
+                "Authorization": f"token {self.token}",
+                "Accept": "application/vnd.github.v3+json"
+            },
+            timeout=30.0
+        )
+
+    async def search_code(
+        self,
+        query: str,
+        owner: Optional[str] = None,
+        repo: Optional[str] = None,
+        language: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Search code in GitHub repositories."""
+        search_query = query
+        
+        if owner and repo:
+            search_query += f" repo:{owner}/{repo}"
+        elif owner:
+            search_query += f" user:{owner}"
+        
+        if language:
+            search_query += f" language:{language}"
+        
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/search/code",
+                params={"q": search_query, "per_page": 20}
+            )
+            response.raise_for_status()
+            results = response.json()
+            
+            formatted_results = []
+            for item in results.get("items", []):
+                formatted_results.append({
+                    "repository": item["repository"]["full_name"],
+                    "file": item["name"],
+                    "path": item["path"],
+                    "url": item["html_url"],
+                    "score": item["score"]
+                })
+            
+            return {
+                "results": formatted_results, 
+                "total_count": results.get("total_count", 0)
+            }
+        except Exception as e:
+            return {"error": str(e), "results": []}
+
+    async def get_user_repos(self) -> List[Dict[str, Any]]:
+        """Get user repositories."""
+        try:
+            response = await self.client.get(f"{self.base_url}/user/repos")
+            response.raise_for_status()
+            repos = response.json()
+            
+            formatted_repos = []
+            for repo in repos[:10]:  # Limit to first 10
+                formatted_repos.append({
+                    "name": repo["name"],
+                    "full_name": repo["full_name"],
+                    "description": repo.get("description", ""),
+                    "language": repo.get("language", ""),
+                    "stars": repo["stargazers_count"],
+                    "url": repo["html_url"]
+                })
+            
+            return formatted_repos
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    async def validate_connection(self) -> bool:
+        """Test if the GitHub token works."""
+        try:
+            response = await self.client.get(f"{self.base_url}/user")
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            print(f"GitHub validation error: {e}")
+            return False
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self.client.aclose()
+
+
+
+class SimpleGitLabClient:
+    """Simplified GitLab client that works without MCP dependencies."""
+    
+    def __init__(self, token: str, base_url: str = "https://gitlab.com"):
+        self.token = token
+        self.base_url = base_url
+        self.api_url = f"{self.base_url}/api/v4"
+        self.client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=30.0
+        )
+
+    async def search_code(
+        self,
+        query: str,
+        owner: Optional[str] = None,
+        repo: Optional[str] = None,
+        scope: str = "blobs"
+    ) -> Dict[str, Any]:
+        """Search code in GitLab repositories."""
+        params = {
+            "search": query,
+            "scope": scope
+        }
+        
+        try:
+            if owner and repo:
+                project_path = f"{owner}/{repo}"
+                project_id = await self._get_project_id(project_path)
+                url = f"{self.api_url}/projects/{project_id}/search"
+            else:
+                url = f"{self.api_url}/search"
+            
+            response = await self.client.get(url, params=params)
+            response.raise_for_status()
+            results = response.json()
+            
+            formatted_results = []
+            for result in results[:20]:  # Limit results
+                formatted_results.append({
+                    "repository": result.get("project_id") or "Global",
+                    "file": result.get("filename", result.get("path", "Unknown")),
+                    "line": result.get("startline", "N/A"),
+                    "preview": result.get("data", "")[:100]
+                })
+            
+            return {"results": formatted_results}
+        except Exception as e:
+            return {"error": str(e), "results": []}
+
+    async def _get_project_id(self, project_path: str) -> str:
+        """Get project ID from project path."""
+        try:
+            response = await self.client.get(
+                f"{self.api_url}/projects/{project_path.replace('/', '%2F')}"
+            )
+            response.raise_for_status()
+            return str(response.json()["id"])
+        except:
+            return "unknown"
+
+    async def validate_connection(self) -> bool:
+        """Test if the GitLab token works."""
+        try:
+            response = await self.client.get(f"{self.api_url}/user")
+            return response.status_code == 200
+        except:
+            return False
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self.client.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()

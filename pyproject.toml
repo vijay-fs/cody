@@ -48,6 +48,7 @@ dev = [
 
 [project.scripts]
 ai-cli = "ai_cli.cli.main:app"
+ai = "ai_cli.cli.app:app"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/ai-cli"
