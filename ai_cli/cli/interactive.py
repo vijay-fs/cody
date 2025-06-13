@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 from typing import Optional
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
@@ -28,6 +29,9 @@ class InteractiveCLI:
 - `/help` - Show this help message
 - `/setup` - Add API keys (OpenAI, Claude, etc.)
 - `/mcp` - Configure MCP connections (GitLab, GitHub)
+- `/search` - Search GitHub/GitLab repositories
+- `/view` - View file content from search results
+- `/analyze` - Analyze code with AI after searching
 - `/providers` - Show AI provider status
 - `/config` - Show current configuration
 - `/exit` or `/quit` - Exit the application
@@ -41,6 +45,10 @@ class InteractiveCLI:
 - `Hello, how are you?`
 - `Explain Python decorators --provider claude`
 - `Write a function --stream`
+- `/search github "authentication function"`
+- `/search gitlab "bug fix" --owner myorg --repo backend`
+- `/view github owner/repo path/to/file.py`
+- `/analyze github "How does authentication work?" --query "login function"`
         """
         console.print(Panel(Markdown(welcome_text), title="Welcome to AI CLI", border_style="blue"))
 
@@ -78,7 +86,7 @@ class InteractiveCLI:
         providers_status = {}
         for provider_name in ["openai", "claude", "azure_openai"]:
             try:
-                provider_config = self.config.get_provider_config(provider_name).dict()
+                provider_config = self.config.get_provider_config(provider_name).model_dump()
                 has_key = bool(provider_config.get("api_key"))
                 providers_status[provider_name] = "✓ Configured" if has_key else "✗ Not configured"
             except:
@@ -413,6 +421,473 @@ class InteractiveCLI:
             self.config.save_config_file()
             console.print(f"[green]✓ {service_choice} configuration removed[/green]")
 
+    async def handle_search_command(self, args: list):
+        """Handle search command for GitHub/GitLab repositories."""
+        if len(args) < 2:
+            console.print("[red]Usage: /search <service> <query> [--owner <owner>] [--repo <repo>][/red]")
+            console.print("[dim]Example: /search github \"authentication function\"[/dim]")
+            console.print("[dim]Example: /search gitlab \"bug fix\" --owner myorg --repo backend[/dim]")
+            return
+            
+        service = args[0].lower()
+        if service not in ["github", "gitlab"]:
+            console.print("[red]Service must be 'github' or 'gitlab'[/red]")
+            return
+            
+        # Parse query and options (shlex will have handled quotes properly)
+        query = args[1]
+        owner = None
+        repo = None
+        
+        # Parse remaining options
+        i = 2
+        while i < len(args):
+            if args[i] == "--owner" and i + 1 < len(args):
+                owner = args[i + 1]
+                i += 2
+            elif args[i] == "--repo" and i + 1 < len(args):
+                repo = args[i + 1]
+                i += 2
+            else:
+                i += 1
+        
+        if not query.strip():
+            console.print("[red]Query cannot be empty[/red]")
+            return
+        
+        await self.search_code(service, query, owner, repo)
+
+    async def search_code(self, service: str, query: str, owner: str = None, repo: str = None):
+        """Search code in GitHub or GitLab repositories."""
+        mcp_config = self.config.get_mcp_config()
+        
+        if service == "github":
+            token = mcp_config.github.auth_token
+            if not token:
+                console.print("[red]GitHub not configured. Use /mcp add to set up GitHub first.[/red]")
+                return
+                
+            client = SimpleGitHubClient(token)
+            try:
+                console.print(f"[blue]Searching GitHub for: {query}[/blue]")
+                console.print(f"[dim]Query length: {len(query)}, Query repr: {repr(query)}[/dim]")
+                if owner:
+                    console.print(f"[dim]Owner: {owner}[/dim]")
+                if repo:
+                    console.print(f"[dim]Repository: {repo}[/dim]")
+                    
+                results_data = await client.search_code(query, owner, repo)
+                
+                if "error" in results_data:
+                    console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                    return
+                
+                results = results_data.get("results", [])
+                total_count = results_data.get("total_count", 0)
+                
+                if results:
+                    table = Table(title=f"Search Results from GitHub (Total: {total_count})")
+                    table.add_column("Repository", style="cyan")
+                    table.add_column("File", style="yellow")
+                    table.add_column("Path", style="green")
+                    table.add_column("Score", style="white")
+                    
+                    for result in results[:10]:  # Limit to first 10 results
+                        table.add_row(
+                            result.get("repository", "N/A"),
+                            result.get("file", "N/A"),
+                            result.get("path", "N/A")[:50] + "..." if len(result.get("path", "")) > 50 else result.get("path", "N/A"),
+                            str(result.get("score", "N/A"))
+                        )
+                    
+                    console.print(table)
+                    
+                    # Show additional context
+                    if total_count > 10:
+                        console.print(f"[dim]Showing first 10 of {total_count} results[/dim]")
+                        
+                else:
+                    console.print("[yellow]No results found for your search query[/yellow]")
+                    
+            except Exception as e:
+                console.print(f"[red]Search error: {e}[/red]")
+            finally:
+                await client.close()
+                
+        elif service == "gitlab":
+            token = mcp_config.gitlab.auth_token
+            if not token:
+                console.print("[red]GitLab not configured. Use /mcp add to set up GitLab first.[/red]")
+                return
+                
+            client = SimpleGitLabClient(token, mcp_config.gitlab.base_url)
+            try:
+                console.print(f"[blue]Searching GitLab for: {query}[/blue]")
+                if owner:
+                    console.print(f"[dim]Owner: {owner}[/dim]")
+                if repo:
+                    console.print(f"[dim]Repository: {repo}[/dim]")
+                    
+                results_data = await client.search_code(query, owner, repo)
+                
+                if "error" in results_data:
+                    console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                    return
+                
+                results = results_data.get("results", [])
+                
+                if results:
+                    table = Table(title=f"Search Results from GitLab")
+                    table.add_column("Repository", style="cyan")
+                    table.add_column("File", style="yellow")
+                    table.add_column("Line", style="green")
+                    table.add_column("Preview", style="white")
+                    
+                    for result in results[:10]:  # Limit to first 10 results
+                        table.add_row(
+                            str(result.get("repository", "N/A")),
+                            result.get("file", "N/A"),
+                            str(result.get("line", "N/A")),
+                            result.get("preview", "N/A")[:50] + "..." if len(result.get("preview", "")) > 50 else result.get("preview", "N/A")
+                        )
+                    
+                    console.print(table)
+                else:
+                    console.print("[yellow]No results found for your search query[/yellow]")
+                    
+            except Exception as e:
+                console.print(f"[red]Search error: {e}[/red]")
+            finally:
+                await client.close()
+
+    async def handle_view_command(self, args: list):
+        """Handle view command to display file content from repositories."""
+        if len(args) < 3:
+            console.print("[red]Usage: /view <service> <owner/repo> <path>[/red]")
+            console.print("[dim]Example: /view github facebook/react src/React.js[/dim]")
+            return
+            
+        service = args[0].lower()
+        if service not in ["github", "gitlab"]:
+            console.print("[red]Service must be 'github' or 'gitlab'[/red]")
+            return
+            
+        owner_repo = args[1]
+        if "/" not in owner_repo:
+            console.print("[red]Repository must be in format 'owner/repo'[/red]")
+            return
+            
+        owner, repo = owner_repo.split("/", 1)
+        file_path = args[2]
+        
+        await self.view_file_content(service, owner, repo, file_path)
+
+    async def view_file_content(self, service: str, owner: str, repo: str, file_path: str):
+        """View file content from GitHub or GitLab repository."""
+        mcp_config = self.config.get_mcp_config()
+        
+        if service == "github":
+            token = mcp_config.github.auth_token
+            if not token:
+                console.print("[red]GitHub not configured. Use /mcp add to set up GitHub first.[/red]")
+                return
+                
+            client = SimpleGitHubClient(token)
+            try:
+                console.print(f"[blue]Fetching file: {owner}/{repo}/{file_path}[/blue]")
+                
+                file_data = await client.get_file_content(owner, repo, file_path)
+                
+                if "error" in file_data:
+                    console.print(f"[red]Failed to fetch file: {file_data['error']}[/red]")
+                    return
+                
+                content = file_data.get("content", "")
+                file_info = f"**File:** {file_data.get('name', 'Unknown')}\n"
+                file_info += f"**Path:** {file_data.get('path', 'Unknown')}\n"
+                file_info += f"**Size:** {file_data.get('size', 0)} bytes\n"
+                file_info += f"**URL:** {file_data.get('url', 'N/A')}\n\n"
+                
+                console.print(Panel(file_info, title=f"File Info - {owner}/{repo}", border_style="blue"))
+                
+                # Display code with syntax highlighting
+                try:
+                    from rich.syntax import Syntax
+                    # Try to detect language from file extension
+                    language = "text"
+                    if "." in file_path:
+                        ext = file_path.split(".")[-1].lower()
+                        language_map = {
+                            "py": "python", "js": "javascript", "ts": "typescript",
+                            "java": "java", "cpp": "cpp", "c": "c", "go": "go",
+                            "rs": "rust", "rb": "ruby", "php": "php", "html": "html",
+                            "css": "css", "json": "json", "xml": "xml", "yaml": "yaml",
+                            "yml": "yaml", "md": "markdown", "sh": "bash"
+                        }
+                        language = language_map.get(ext, "text")
+                    
+                    syntax = Syntax(content, language, theme="monokai", line_numbers=True)
+                    console.print(syntax)
+                except ImportError:
+                    console.print(Panel(content, title="File Content", border_style="green"))
+                    
+            except Exception as e:
+                console.print(f"[red]Error viewing file: {e}[/red]")
+            finally:
+                await client.close()
+                
+        elif service == "gitlab":
+            token = mcp_config.gitlab.auth_token
+            if not token:
+                console.print("[red]GitLab not configured. Use /mcp add to set up GitLab first.[/red]")
+                return
+                
+            client = SimpleGitLabClient(token, mcp_config.gitlab.base_url)
+            try:
+                console.print(f"[blue]Fetching file: {owner}/{repo}/{file_path}[/blue]")
+                
+                file_data = await client.get_file_content(owner, repo, file_path)
+                
+                if "error" in file_data:
+                    console.print(f"[red]Failed to fetch file: {file_data['error']}[/red]")
+                    return
+                
+                content = file_data.get("content", "")
+                file_info = f"**File:** {file_data.get('file_name', 'Unknown')}\n"
+                file_info += f"**Path:** {file_data.get('file_path', 'Unknown')}\n"
+                file_info += f"**Size:** {file_data.get('size', 0)} bytes\n\n"
+                
+                console.print(Panel(file_info, title=f"File Info - {owner}/{repo}", border_style="blue"))
+                
+                # Display code with syntax highlighting
+                try:
+                    from rich.syntax import Syntax
+                    # Try to detect language from file extension
+                    language = "text"
+                    if "." in file_path:
+                        ext = file_path.split(".")[-1].lower()
+                        language_map = {
+                            "py": "python", "js": "javascript", "ts": "typescript",
+                            "java": "java", "cpp": "cpp", "c": "c", "go": "go",
+                            "rs": "rust", "rb": "ruby", "php": "php", "html": "html",
+                            "css": "css", "json": "json", "xml": "xml", "yaml": "yaml",
+                            "yml": "yaml", "md": "markdown", "sh": "bash"
+                        }
+                        language = language_map.get(ext, "text")
+                    
+                    syntax = Syntax(content, language, theme="monokai", line_numbers=True)
+                    console.print(syntax)
+                except ImportError:
+                    console.print(Panel(content, title="File Content", border_style="green"))
+                    
+            except Exception as e:
+                console.print(f"[red]Error viewing file: {e}[/red]")
+            finally:
+                await client.close()
+
+    async def handle_analyze_command(self, args: list):
+        """Handle analyze command to search and analyze code with AI."""
+        if len(args) < 3:
+            console.print("[red]Usage: /analyze <service> <question> --query <search_query> [--owner <owner>] [--repo <repo>] [--provider <provider>][/red]")
+            console.print("[dim]Example: /analyze github \"How does authentication work?\" --query \"login function\"[/dim]")
+            return
+            
+        service = args[0].lower()
+        if service not in ["github", "gitlab"]:
+            console.print("[red]Service must be 'github' or 'gitlab'[/red]")
+            return
+            
+        question = args[1]
+        
+        # Parse remaining arguments
+        query = None
+        owner = None
+        repo = None
+        provider = self.config.default_provider
+        
+        i = 2
+        while i < len(args):
+            if args[i] == "--query" and i + 1 < len(args):
+                query = args[i + 1]
+                i += 2
+            elif args[i] == "--owner" and i + 1 < len(args):
+                owner = args[i + 1]
+                i += 2
+            elif args[i] == "--repo" and i + 1 < len(args):
+                repo = args[i + 1]
+                i += 2
+            elif args[i] == "--provider" and i + 1 < len(args):
+                provider = args[i + 1]
+                i += 2
+            else:
+                i += 1
+        
+        if not query:
+            console.print("[red]--query parameter is required[/red]")
+            return
+        
+        await self.analyze_code_with_ai(service, question, query, owner, repo, provider)
+
+    async def analyze_code_with_ai(self, service: str, question: str, query: str, owner: str = None, repo: str = None, provider: str = None):
+        """Search for code and analyze it with AI."""
+        console.print(f"[blue]Searching {service} for: {query}[/blue]")
+        
+        # First, search for relevant code
+        mcp_config = self.config.get_mcp_config()
+        
+        if service == "github":
+            token = mcp_config.github.auth_token
+            if not token:
+                console.print("[red]GitHub not configured. Use /mcp add to set up GitHub first.[/red]")
+                return
+                
+            client = SimpleGitHubClient(token)
+            try:
+                results_data = await client.search_code(query, owner, repo)
+                
+                if "error" in results_data:
+                    console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                    return
+                
+                results = results_data.get("results", [])
+                
+                if not results:
+                    console.print("[yellow]No code found for your search query.[/yellow]")
+                    return
+                
+                # Get content from the top few results
+                code_context = []
+                console.print(f"[blue]Found {len(results)} search results. Fetching content from top 3...[/blue]")
+                
+                for i, result in enumerate(results[:3]):  # Limit to top 3 results
+                    console.print(f"[dim]Fetching {result['repository']}/{result['path']}...[/dim]")
+                    
+                    file_data = await client.get_file_content(
+                        result["owner"], 
+                        result["repo_name"], 
+                        result["path"]
+                    )
+                    
+                    if "content" in file_data:
+                        content = file_data["content"][:2000]  # Limit content size
+                        code_context.append({
+                            "repository": result["repository"],
+                            "file": result["file"],
+                            "path": result["path"],
+                            "url": result["url"],
+                            "content": content
+                        })
+                        console.print(f"[green]✓ Got {len(content)} chars from {result['file']}[/green]")
+                    else:
+                        console.print(f"[yellow]⚠ Could not fetch content from {result['file']}: {file_data.get('error', 'Unknown error')}[/yellow]")
+                
+                console.print(f"[blue]Retrieved content from {len(code_context)} files.[/blue]")
+                
+                await client.close()
+                
+            except Exception as e:
+                console.print(f"[red]Search error: {e}[/red]")
+                await client.close()
+                return
+                
+        elif service == "gitlab":
+            token = mcp_config.gitlab.auth_token
+            if not token:
+                console.print("[red]GitLab not configured. Use /mcp add to set up GitLab first.[/red]")
+                return
+            
+            client = SimpleGitLabClient(token, mcp_config.gitlab.base_url)
+            try:
+                results_data = await client.search_code(query, owner, repo)
+                
+                if "error" in results_data:
+                    console.print(f"[red]Search failed: {results_data['error']}[/red]")
+                    return
+                
+                results = results_data.get("results", [])
+                
+                if not results:
+                    console.print("[yellow]No code found for your search query.[/yellow]")
+                    return
+                
+                # For GitLab, we already have previews in the search results
+                code_context = []
+                for result in results[:5]:  # Use more results since we have less content
+                    code_context.append({
+                        "repository": result["repository"],
+                        "file": result["file"],
+                        "path": result.get("path", "N/A"),
+                        "line": result.get("line", "N/A"),
+                        "content": result.get("preview", "No preview available")
+                    })
+                
+                await client.close()
+                
+            except Exception as e:
+                console.print(f"[red]Search error: {e}[/red]")
+                await client.close()
+                return
+        
+        # Now analyze with AI
+        if code_context:
+            await self.send_analysis_to_ai(question, code_context, provider or self.config.default_provider)
+        else:
+            console.print("[yellow]No code content available for analysis.[/yellow]")
+
+    async def send_analysis_to_ai(self, question: str, code_context: list, provider: str):
+        """Send code context and question to AI for analysis."""
+        
+        # Show user what code we're analyzing
+        console.print(f"\n[bold blue]Code Sources Being Analyzed:[/bold blue]")
+        for i, context in enumerate(code_context, 1):
+            console.print(f"{i}. {context['repository']}/{context['path']}")
+        console.print()
+        
+        # Prepare the context message
+        context_message = f"User Question: {question}\n\n"
+        context_message += "Here is the relevant code I found from real repositories:\n\n"
+        
+        for i, context in enumerate(code_context, 1):
+            context_message += f"## Code Example {i}\n"
+            context_message += f"**Repository:** {context['repository']}\n"
+            context_message += f"**File:** {context['file']}\n"
+            context_message += f"**Path:** {context['path']}\n"
+            if context.get('url'):
+                context_message += f"**URL:** {context['url']}\n"
+            if context.get('line'):
+                context_message += f"**Line:** {context['line']}\n"
+            context_message += f"\n```\n{context['content']}\n```\n\n"
+        
+        context_message += "Based on the ACTUAL CODE above from these repositories, please:\n"
+        context_message += "1. Analyze the code and answer the user's question\n"
+        context_message += "2. Provide specific examples from the code above\n"
+        context_message += "3. Explain how the code works with concrete implementation details\n"
+        context_message += "4. Include relevant code snippets in your response\n"
+        context_message += "5. Cite the source files and repositories\n"
+        context_message += "6. Give step-by-step implementation guidance based on the real code patterns shown"
+        
+        try:
+            provider_config = self.config.get_provider_config(provider).model_dump()
+            ai_provider = ProviderFactory.create_provider(provider, provider_config)
+            
+            async with ai_provider:
+                messages = [AIMessage(role="user", content=context_message)]
+                
+                console.print(f"[blue]Analyzing code with {provider}...[/blue]")
+                
+                with console.status(f"Getting analysis from {provider}..."):
+                    response = await ai_provider.chat_completion(messages)
+                
+                console.print(f"\n[bold green]AI Analysis ({provider}):[/bold green]")
+                console.print()
+                console.print(Markdown(response.content))
+                
+                if response.usage:
+                    console.print(f"\n[dim]Tokens used: {response.usage}[/dim]")
+                    
+        except Exception as e:
+            console.print(f"[red]AI Analysis error: {e}[/red]")
+
     async def handle_providers_command(self):
         """Show AI provider status."""
         table = Table(title="AI Providers Status")
@@ -424,7 +899,7 @@ class InteractiveCLI:
         
         for provider_name in available_providers:
             try:
-                provider_config = self.config.get_provider_config(provider_name).dict()
+                provider_config = self.config.get_provider_config(provider_name).model_dump()
                 provider = ProviderFactory.create_provider(provider_name, provider_config)
                 
                 async with provider:
@@ -480,7 +955,7 @@ class InteractiveCLI:
             return
             
         try:
-            provider_config = self.config.get_provider_config(provider).dict()
+            provider_config = self.config.get_provider_config(provider).model_dump()
             ai_provider = ProviderFactory.create_provider(provider, provider_config)
             
             async with ai_provider:
@@ -520,9 +995,14 @@ class InteractiveCLI:
                     
                 # Handle commands
                 if user_input.startswith("/"):
-                    command_parts = user_input[1:].split()
-                    command = command_parts[0].lower()
-                    args = command_parts[1:] if len(command_parts) > 1 else []
+                    try:
+                        # Use shlex to properly parse quoted strings
+                        command_parts = shlex.split(user_input[1:])
+                        command = command_parts[0].lower()
+                        args = command_parts[1:] if len(command_parts) > 1 else []
+                    except ValueError as e:
+                        console.print(f"[red]Invalid command syntax: {e}[/red]")
+                        continue
                     
                     if command in ["exit", "quit", "q"]:
                         console.print("[green]Goodbye! 👋[/green]")
@@ -533,6 +1013,12 @@ class InteractiveCLI:
                         await self.handle_setup_command(args)
                     elif command == "mcp":
                         await self.handle_mcp_command(args)
+                    elif command == "search":
+                        await self.handle_search_command(args)
+                    elif command == "view":
+                        await self.handle_view_command(args)
+                    elif command == "analyze":
+                        await self.handle_analyze_command(args)
                     elif command == "providers":
                         await self.handle_providers_command()
                     elif command == "config":

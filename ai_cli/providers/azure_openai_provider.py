@@ -73,7 +73,7 @@ class AzureOpenAIProvider(BaseAIProvider):
         return AIResponse(
             content=response.choices[0].message.content,
             model=response.model,
-            usage=response.usage.dict() if response.usage else None,
+            usage=response.usage.model_dump() if response.usage else None,
             metadata={
                 "finish_reason": response.choices[0].finish_reason,
                 "created": response.created,

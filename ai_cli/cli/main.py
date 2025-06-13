@@ -105,7 +105,7 @@ async def _chat_async(
     provider_name = provider or config.default_provider
     
     try:
-        provider_config = config.get_provider_config(provider_name).dict()
+        provider_config = config.get_provider_config(provider_name).model_dump()
         ai_provider = ProviderFactory.create_provider(provider_name, provider_config)
         
         async with ai_provider:
@@ -158,7 +158,7 @@ async def _providers_async():
     
     for provider_name in available_providers:
         try:
-            provider_config = config.get_provider_config(provider_name).dict()
+            provider_config = config.get_provider_config(provider_name).model_dump()
             provider = ProviderFactory.create_provider(provider_name, provider_config)
             
             async with provider:

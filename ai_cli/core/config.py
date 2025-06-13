@@ -14,8 +14,9 @@ class ProviderConfig(BaseSettings):
 
 
 class OpenAIConfig(ProviderConfig):
-    model: str = "gpt-4"
+    model: str = "o3-mini"
     api_key: Optional[str] = None
+    max_completion_tokens: Optional[int] = None  # For o3/o1 models
 
 
 class AzureOpenAIConfig(ProviderConfig):

@@ -36,10 +36,10 @@ class SimpleGitHubClient:
             search_query += f" language:{language}"
         
         try:
-            response = await self.client.get(
-                f"{self.base_url}/search/code",
-                params={"q": search_query, "per_page": 20}
-            )
+            url = f"{self.base_url}/search/code"
+            params = {"q": search_query, "per_page": 20}
+            
+            response = await self.client.get(url, params=params)
             response.raise_for_status()
             results = response.json()
             
@@ -50,7 +50,9 @@ class SimpleGitHubClient:
                     "file": item["name"],
                     "path": item["path"],
                     "url": item["html_url"],
-                    "score": item["score"]
+                    "score": item["score"],
+                    "owner": item["repository"]["owner"]["login"],
+                    "repo_name": item["repository"]["name"]
                 })
             
             return {
@@ -61,20 +63,48 @@ class SimpleGitHubClient:
             return {"error": str(e), "results": []}
 
     async def get_user_repos(self) -> List[Dict[str, Any]]:
-        """Get user repositories."""
+        """Get user repositories including private ones."""
         try:
-            response = await self.client.get(f"{self.base_url}/user/repos")
-            response.raise_for_status()
-            repos = response.json()
+            # Get all repositories including private ones with pagination
+            all_repos = []
+            page = 1
+            per_page = 100
+            
+            while True:
+                params = {
+                    "type": "all",  # Include public, private, and organization repos
+                    "sort": "updated",
+                    "per_page": per_page,
+                    "page": page
+                }
+                
+                response = await self.client.get(f"{self.base_url}/user/repos", params=params)
+                response.raise_for_status()
+                repos = response.json()
+                
+                if not repos:  # No more repositories
+                    break
+                
+                all_repos.extend(repos)
+                
+                if len(repos) < per_page:  # Last page
+                    break
+                    
+                page += 1
+                
+                # Safety limit to avoid infinite loops
+                if page > 10:  # Max 1000 repos
+                    break
             
             formatted_repos = []
-            for repo in repos[:10]:  # Limit to first 10
+            for repo in all_repos:
                 formatted_repos.append({
                     "name": repo["name"],
                     "full_name": repo["full_name"],
                     "description": repo.get("description", ""),
                     "language": repo.get("language", ""),
                     "stars": repo["stargazers_count"],
+                    "private": repo["private"],
                     "url": repo["html_url"]
                 })
             
@@ -88,9 +118,43 @@ class SimpleGitHubClient:
             response = await self.client.get(f"{self.base_url}/user")
             response.raise_for_status()
             return True
-        except Exception as e:
-            print(f"GitHub validation error: {e}")
+        except Exception:
             return False
+
+    async def get_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: str = "main"
+    ) -> Dict[str, Any]:
+        """Get file content from GitHub repository."""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/repos/{owner}/{repo}/contents/{path}",
+                params={"ref": ref}
+            )
+            response.raise_for_status()
+            file_data = response.json()
+            
+            content = ""
+            if file_data.get("encoding") == "base64":
+                import base64
+                content = base64.b64decode(file_data["content"]).decode("utf-8")
+            else:
+                content = file_data.get("content", "")
+            
+            return {
+                "content": content,
+                "size": file_data["size"],
+                "encoding": file_data["encoding"],
+                "name": file_data["name"],
+                "path": file_data["path"],
+                "sha": file_data["sha"],
+                "url": file_data["html_url"]
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     async def close(self):
         """Close the HTTP client."""
@@ -141,7 +205,8 @@ class SimpleGitLabClient:
                     "repository": result.get("project_id") or "Global",
                     "file": result.get("filename", result.get("path", "Unknown")),
                     "line": result.get("startline", "N/A"),
-                    "preview": result.get("data", "")[:100]
+                    "preview": result.get("data", "")[:100],
+                    "path": result.get("path", "Unknown")
                 })
             
             return {"results": formatted_results}
@@ -166,6 +231,38 @@ class SimpleGitLabClient:
             return response.status_code == 200
         except:
             return False
+
+    async def get_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: str = "main"
+    ) -> Dict[str, Any]:
+        """Get file content from GitLab repository."""
+        try:
+            project_path = f"{owner}/{repo}"
+            encoded_path = path.replace('/', '%2F')
+            
+            response = await self.client.get(
+                f"{self.api_url}/projects/{project_path.replace('/', '%2F')}/repository/files/{encoded_path}",
+                params={"ref": ref}
+            )
+            response.raise_for_status()
+            file_data = response.json()
+            
+            import base64
+            content = base64.b64decode(file_data["content"]).decode("utf-8")
+            
+            return {
+                "content": content,
+                "size": file_data["size"],
+                "encoding": file_data["encoding"],
+                "file_name": file_data["file_name"],
+                "file_path": file_data["file_path"]
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     async def close(self):
         """Close the HTTP client."""

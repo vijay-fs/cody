@@ -6,14 +6,21 @@ from pydantic import BaseModel
 class AIMessage(BaseModel):
     role: str
     content: str
+    name: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+
+
+class ToolCall(BaseModel):
+    id: str
+    function: Dict[str, Any]
 
 
 class AIResponse(BaseModel):
-    content: str
+    content: Optional[str] = ""
     model: str
     usage: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class BaseAIProvider(ABC):

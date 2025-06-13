@@ -7,7 +7,8 @@ import typer
 from rich.console import Console
 
 from ..core.config import AICliConfig
-from .interactive import main as interactive_main
+from .smart_interactive import main as smart_interactive_main
+from .interactive import main as legacy_interactive_main
 from .main import _chat_async, _providers_async, _mcp_connect_async, _mcp_search_async
 
 console = Console()
@@ -66,10 +67,10 @@ def main(
         
     config.load_config_file()
     
-    # If no subcommand is provided, enter interactive mode
+    # If no subcommand is provided, enter smart interactive mode
     if ctx.invoked_subcommand is None:
         console.print("[dim]Starting interactive mode... (use --help for commands)[/dim]")
-        asyncio.run(interactive_main())
+        asyncio.run(smart_interactive_main())
 
 
 @app.command("chat")
@@ -86,9 +87,18 @@ def chat_command(
 
 
 @app.command("interactive")
-def interactive_command():
+def interactive_command(
+    legacy: bool = typer.Option(
+        False,
+        "--legacy",
+        help="Use legacy command-based interface"
+    )
+):
     """Enter interactive mode explicitly."""
-    asyncio.run(interactive_main())
+    if legacy:
+        asyncio.run(legacy_interactive_main())
+    else:
+        asyncio.run(smart_interactive_main())
 
 
 @app.command("providers")
