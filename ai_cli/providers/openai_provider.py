@@ -41,9 +41,11 @@ class OpenAIProvider(BaseAIProvider):
     ) -> AIResponse:
         model = kwargs.get("model", self.config.get("model", "o3-mini"))
         # Try max_completion_tokens first (for o3/o1), fallback to max_tokens
+        # Use higher limits for reasoning models
+        default_tokens = 16000 if model.startswith(("o3", "o1")) else 4000
         max_tokens = kwargs.get("max_tokens", 
                                self.config.get("max_completion_tokens", 
-                                             self.config.get("max_tokens", 4000)))
+                                             self.config.get("max_tokens", default_tokens)))
         temperature = kwargs.get("temperature", self.config.get("temperature", 0.7))
 
         openai_messages = []
@@ -108,9 +110,11 @@ class OpenAIProvider(BaseAIProvider):
     ) -> AsyncGenerator[str, None]:
         model = kwargs.get("model", self.config.get("model", "o3-mini"))
         # Try max_completion_tokens first (for o3/o1), fallback to max_tokens
+        # Use higher limits for reasoning models
+        default_tokens = 16000 if model.startswith(("o3", "o1")) else 4000
         max_tokens = kwargs.get("max_tokens", 
                                self.config.get("max_completion_tokens", 
-                                             self.config.get("max_tokens", 4000)))
+                                             self.config.get("max_tokens", default_tokens)))
         temperature = kwargs.get("temperature", self.config.get("temperature", 0.7))
 
         openai_messages = [

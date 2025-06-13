@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.markdown import Markdown
 
 from ..core.config import AICliConfig
+from ..core.reasoning import AdvancedReasoningEngine, ReasoningMode, ComplexityLevel
 from ..providers.factory import ProviderFactory
 from ..providers.base import AIMessage
 from ..mcp.simple_client import SimpleGitHubClient, SimpleGitLabClient
@@ -22,6 +23,30 @@ class InteractiveCLI:
         self.config = AICliConfig()
         self.config.load_config_file()
         self.running = True
+        self.reasoning_engine = AdvancedReasoningEngine()
+    
+    def _should_use_reasoning(self, message: str) -> bool:
+        """Determine if a message requires advanced reasoning."""
+        query_lower = message.lower()
+        
+        # Complex reasoning indicators
+        complex_indicators = [
+            "architecture", "design pattern", "best practice", "optimization",
+            "security", "performance", "scalability", "integration",
+            "troubleshoot", "debug", "analyze", "compare", "evaluate",
+            "system design", "distributed", "microservice", "concurrency",
+            "how should i", "what's the best way", "design a", "implement a",
+            "explain why", "explain how", "walk me through", "step by step",
+            "algorithm complexity", "memory optimization", "race condition"
+        ]
+        
+        # Length and complexity heuristics
+        word_count = len(message.split())
+        has_complex_indicator = any(indicator in query_lower for indicator in complex_indicators)
+        has_multiple_questions = message.count('?') > 1
+        is_long_query = word_count > 15
+        
+        return has_complex_indicator or has_multiple_questions or is_long_query
         
     def show_welcome(self):
         """Show welcome message and available commands."""
@@ -939,7 +964,7 @@ class InteractiveCLI:
         ))
 
     async def handle_chat_message(self, message: str):
-        """Handle chat message to AI providers."""
+        """Handle chat message to AI providers with advanced reasoning for o3 models."""
         # Parse message for flags
         parts = message.split()
         provider = self.config.default_provider
@@ -967,10 +992,40 @@ class InteractiveCLI:
             
         try:
             provider_config = self.config.get_provider_config(provider).model_dump()
+            current_model = provider_config.get("model", "gpt-4")
+            
+            # Check if we should use advanced reasoning
+            should_use_reasoning = self._should_use_reasoning(clean_message)
+            is_o3_model = current_model.startswith(("o3", "o1"))
+            
+            if should_use_reasoning and is_o3_model:
+                console.print(f"[dim]🧠 Applying advanced reasoning with {current_model}...[/dim]")
+                
+                # Generate enhanced reasoning prompt
+                enhancement = self.reasoning_engine.enhance_query_for_reasoning(
+                    original_query=clean_message,
+                    code_context=[],  # No code context in basic chat
+                    domain="general",
+                    model=current_model
+                )
+                
+                reasoning_context = enhancement["reasoning_context"]
+                enhanced_prompt = enhancement["enhanced_prompt"]["prompt"]
+                
+                console.print(f"[dim]📊 Reasoning mode: {reasoning_context.reasoning_mode.value}[/dim]")
+                console.print(f"[dim]📈 Complexity: {reasoning_context.complexity.value}[/dim]")
+                
+                # Use the enhanced prompt instead of the original message
+                final_message = enhanced_prompt
+            else:
+                final_message = clean_message
+                if should_use_reasoning and not is_o3_model:
+                    console.print(f"[dim]💡 Complex query detected, but {current_model} doesn't support advanced reasoning[/dim]")
+            
             ai_provider = ProviderFactory.create_provider(provider, provider_config)
             
             async with ai_provider:
-                messages = [AIMessage(role="user", content=clean_message)]
+                messages = [AIMessage(role="user", content=final_message)]
                 
                 if stream:
                     console.print(f"[bold blue]{provider}[/bold blue] streaming response:")
@@ -1176,7 +1231,7 @@ class InteractiveCLI:
             console.print("[yellow]No code content available for analysis.[/yellow]")
 
     async def analyze_local_code_with_ai(self, query: str, code_context: List[Dict[str, Any]], provider: str):
-        """Analyze local code with AI."""
+        """Analyze local code with AI using advanced reasoning for o3 models."""
         
         # Show what we're analyzing
         console.print(f"\n[bold blue]Analyzing Local Code Files:[/bold blue]")
@@ -1184,30 +1239,69 @@ class InteractiveCLI:
             console.print(f"{i}. {context['file']}:{context['line']}")
         console.print()
         
-        # Prepare context message
-        context_message = f"User Query: {query}\n\n"
-        context_message += "I found the following code in the local codebase that matches your query:\n\n"
-        
-        for i, context in enumerate(code_context, 1):
-            context_message += f"## File {i}: {context['file']}\n"
-            context_message += f"**Match on line {context['line']}:** `{context['match_line']}`\n\n"
-            context_message += "**Code Context:**\n"
-            context_message += f"```\n{context['content']}\n```\n\n"
-        
-        context_message += "Based on the ACTUAL CODE from this local codebase, please:\n"
-        context_message += "1. Answer the user's query with specific examples from the code above\n"
-        context_message += "2. Explain how the code works and any patterns you see\n"
-        context_message += "3. Provide implementation guidance based on the existing code\n"
-        context_message += "4. Suggest improvements or best practices\n"
-        context_message += "5. Reference specific files and line numbers in your response\n"
-        context_message += "6. If the query is about architecture, explain the overall structure you can infer from these examples"
-        
         try:
             provider_config = self.config.get_provider_config(provider).model_dump()
+            current_model = provider_config.get("model", "gpt-4")
+            is_o3_model = current_model.startswith(("o3", "o1"))
+            should_use_reasoning = self._should_use_reasoning(query)
+            
+            if should_use_reasoning and is_o3_model:
+                console.print(f"[dim]🧠 Applying advanced reasoning for local code analysis with {current_model}...[/dim]")
+                
+                # Convert code context to format expected by reasoning engine
+                reasoning_code_context = []
+                for context in code_context:
+                    reasoning_code_context.append({
+                        "repository": f"local/{context['file']}",
+                        "path": context['file'],
+                        "content": context['content'],
+                        "file": context['file'].split('/')[-1],
+                        "line": context['line']
+                    })
+                
+                # Generate enhanced reasoning prompt with code context
+                enhancement = self.reasoning_engine.enhance_query_for_reasoning(
+                    original_query=query,
+                    code_context=reasoning_code_context,
+                    domain="local_codebase",
+                    model=current_model
+                )
+                
+                reasoning_context = enhancement["reasoning_context"]
+                enhanced_prompt = enhancement["enhanced_prompt"]["prompt"]
+                
+                console.print(f"[dim]📊 Reasoning mode: {reasoning_context.reasoning_mode.value}[/dim]")
+                console.print(f"[dim]📈 Complexity: {reasoning_context.complexity.value}[/dim]")
+                
+                final_message = enhanced_prompt
+            else:
+                # Use standard context message for non-o3 models or simple queries
+                context_message = f"User Query: {query}\n\n"
+                context_message += "I found the following code in the local codebase that matches your query:\n\n"
+                
+                for i, context in enumerate(code_context, 1):
+                    context_message += f"## File {i}: {context['file']}\n"
+                    context_message += f"**Match on line {context['line']}:** `{context['match_line']}`\n\n"
+                    context_message += "**Code Context:**\n"
+                    context_message += f"```\n{context['content']}\n```\n\n"
+                
+                context_message += "Based on the ACTUAL CODE from this local codebase, please:\n"
+                context_message += "1. Answer the user's query with specific examples from the code above\n"
+                context_message += "2. Explain how the code works and any patterns you see\n"
+                context_message += "3. Provide implementation guidance based on the existing code\n"
+                context_message += "4. Suggest improvements or best practices\n"
+                context_message += "5. Reference specific files and line numbers in your response\n"
+                context_message += "6. If the query is about architecture, explain the overall structure you can infer from these examples"
+                
+                final_message = context_message
+                
+                if should_use_reasoning and not is_o3_model:
+                    console.print(f"[dim]💡 Complex query detected, but {current_model} doesn't support advanced reasoning[/dim]")
+            
             ai_provider = ProviderFactory.create_provider(provider, provider_config)
             
             async with ai_provider:
-                messages = [AIMessage(role="user", content=context_message)]
+                messages = [AIMessage(role="user", content=final_message)]
                 
                 console.print(f"[blue]Getting analysis from {provider}...[/blue]")
                 

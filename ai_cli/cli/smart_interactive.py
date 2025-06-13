@@ -224,10 +224,10 @@ The AI automatically uses these tools:
                         del tool_provider_config["max_completion_tokens"]  # Remove o3-specific param
                     tool_ai_provider = ProviderFactory.create_provider(provider_name, tool_provider_config)
                     
-                    # Enhance the message to encourage advanced reasoning for complex queries
+                    # Enhance the message to FORCE advanced reasoning for complex queries
                     enhanced_messages = messages.copy()
                     if self._should_use_advanced_reasoning(user_message):
-                        reasoning_hint = "\n\nNOTE: This appears to be a complex technical question. Please use the 'advanced_reasoning' tool to apply sophisticated reasoning modes (step-by-step, chain-of-thought, tree-of-thought, etc.) appropriate for this query complexity."
+                        reasoning_hint = f"\n\nIMPORTANT: This is a complex technical question that REQUIRES advanced reasoning. You MUST call the 'advanced_reasoning' tool with the following parameters:\n- query: \"{user_message}\"\n- domain: \"architecture\" (or appropriate technical domain)\n\nDo NOT just search for code - you MUST also use advanced_reasoning to provide sophisticated analysis with proper reasoning modes (step-by-step, chain-of-thought, tree-of-thought, etc.)."
                         if enhanced_messages and enhanced_messages[-1].role == "user":
                             enhanced_messages[-1] = AIMessage(
                                 role="user", 
@@ -377,8 +377,59 @@ The AI automatically uses these tools:
                                 # Fallback to original logic if no enhanced prompt
                                 self._add_standard_tool_context(filtered_messages, tool_calls)
                         else:
-                            # No advanced reasoning, use standard tool context
-                            self._add_standard_tool_context(filtered_messages, tool_calls)
+                            # No advanced reasoning tool was called, but this is an o3 model
+                            # Let's apply reasoning directly for complex queries
+                            if self._should_use_advanced_reasoning(user_message):
+                                console.print(f"[dim]🧠 Applying direct reasoning (advanced_reasoning tool not called)...[/dim]")
+                                
+                                # Generate reasoning prompt directly
+                                try:
+                                    # Collect any code context from search tools
+                                    search_code_context = []
+                                    for tool_call_record in tool_calls:
+                                        if tool_call_record.name == "search_code" and tool_call_record.result.get("results"):
+                                            for result in tool_call_record.result.get("results", [])[:3]:
+                                                if result.get("content"):
+                                                    search_code_context.append({
+                                                        "repository": result.get("repository", "Unknown"),
+                                                        "path": result.get("path", "Unknown"),
+                                                        "content": result.get("content", "")[:2000],
+                                                        "file": result.get("file", "Unknown")
+                                                    })
+                                    
+                                    # Generate enhanced reasoning prompt
+                                    from ..core.reasoning import AdvancedReasoningEngine
+                                    reasoning_engine = AdvancedReasoningEngine()
+                                    enhancement = reasoning_engine.enhance_query_for_reasoning(
+                                        original_query=user_message,
+                                        code_context=search_code_context,
+                                        domain="architecture",
+                                        model=current_model
+                                    )
+                                    
+                                    reasoning_context = enhancement["reasoning_context"]
+                                    enhanced_prompt = enhancement["enhanced_prompt"]["prompt"]
+                                    
+                                    console.print(f"[dim]📊 Direct reasoning mode: {reasoning_context.reasoning_mode.value}[/dim]")
+                                    console.print(f"[dim]📈 Complexity: {reasoning_context.complexity.value}[/dim]")
+                                    
+                                    # Add any additional code context
+                                    if search_code_context:
+                                        code_context = "\n\nAdditional Code Context:\n"
+                                        for i, result in enumerate(search_code_context):
+                                            code_context += f"Example {i+1}: {result['repository']}/{result['path']}\n"
+                                            code_context += f"```\n{result['content'][:1000]}...\n```\n\n"
+                                        enhanced_prompt += code_context
+                                    
+                                    # Replace user message with enhanced prompt
+                                    if filtered_messages and filtered_messages[-1].role == "user":
+                                        filtered_messages[-1].content = enhanced_prompt
+                                except Exception as e:
+                                    console.print(f"[dim]⚠️ Direct reasoning failed: {e}, using standard context[/dim]")
+                                    self._add_standard_tool_context(filtered_messages, tool_calls)
+                            else:
+                                # Simple query, use standard tool context
+                                self._add_standard_tool_context(filtered_messages, tool_calls)
                         
                         final_response = await ai_provider.chat_completion(filtered_messages)
                     else:
