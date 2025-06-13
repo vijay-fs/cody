@@ -1,126 +1,328 @@
-# AI CLI
+# AI CLI - Intelligent Code Assistant
 
-A scalable command-line tool for interacting with multiple AI providers (OpenAI, Claude, Azure OpenAI, Ollama) with Model Context Protocol (MCP) integration for seamless access to GitLab and GitHub repositories.
+A sophisticated command-line tool that combines multiple AI providers (OpenAI, Claude, Azure OpenAI, Ollama) with advanced reasoning capabilities and seamless GitHub/GitLab integration for intelligent code analysis and assistance.
 
 ## 🚀 Features
 
-- **Multi-Provider Support**: OpenAI, Claude (Anthropic), Azure OpenAI, and Ollama
-- **MCP Integration**: Direct access to GitLab and GitHub repositories for code context
-- **Streaming Responses**: Real-time response streaming for better user experience
-- **Flexible Configuration**: YAML config files with environment variable overrides
-- **Extensible Architecture**: Plugin-style provider system for easy expansion
-- **Rich CLI Interface**: Beautiful terminal output with syntax highlighting
-- **Security First**: Secure token storage and minimal permission requirements
+- **Dual CLI Modes**: Simple `ai` interactive mode + full-featured `ai-cli` commands
+- **Advanced AI Reasoning**: Automatic o3/o1 model reasoning for complex queries
+- **Multi-Provider Support**: OpenAI (GPT-4, o3, o1), Claude, Azure OpenAI, Ollama
+- **Smart Code Analysis**: RAG system prioritizing your own repositories
+- **MCP Integration**: Direct GitHub/GitLab repository access and search
+- **Intelligent Tool Calling**: AI automatically uses appropriate tools
+- **Streaming Responses**: Real-time response generation
+- **Context-Aware**: Automatic git repository and user detection
 
-## 📦 Quick Start
+## 📦 Installation
 
-### Installation
+### Prerequisites
+- Python 3.9+ 
+- Git (for repository context detection)
+- API keys for desired AI providers
+
+### Setup Steps
 
 ```bash
-# Clone the repository
+# 1. Clone repository
 git clone https://github.com/yourusername/ai-cli.git
 cd ai-cli
 
-# Create virtual environment
+# 2. Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install the package
+# 3. Install package
 pip install -e .
+
+# 4. Verify installation
+ai --version
+ai-cli --version
 ```
 
-### Basic Usage
+### Development Installation
 
 ```bash
-# Initialize configuration
-ai-cli config-cmd --init
+# Install with development dependencies
+pip install -e ".[dev]"
 
-# Chat with default provider
-ai-cli chat "Explain quantum computing"
+# Run tests
+pytest
 
-# Use specific provider
-ai-cli chat "Write a Python function" --provider claude
-
-# Stream response
-ai-cli chat "Tell me a story" --stream
-
-# Connect to GitHub
-ai-cli mcp connect github --token your-github-token
-
-# Search code
-ai-cli mcp search github "function main" --owner yourorg --repo yourproject
+# Code quality checks
+black ai_cli/
+ruff check ai_cli/
+mypy ai_cli/
 ```
 
-## 🎯 Quick Examples
+## 🎯 Quick Start
 
-### Basic AI Chat
+### Method 1: Smart Interactive Mode (Recommended)
+
 ```bash
-# Simple chat
-ai-cli chat "What is Python?"
+# Launch intelligent assistant
+ai
 
-# Chat with specific provider and parameters
-ai-cli chat "Explain async programming" --provider claude --temperature 0.3 --max-tokens 1000
+# The AI will automatically:
+# - Detect your current repository
+# - Search your code when relevant
+# - Apply advanced reasoning for complex queries
+# - Use appropriate tools based on your questions
+
+# Example queries:
+# "How does authentication work in this project?"
+# "Find all TODO comments and prioritize them"
+# "Explain the architecture of this codebase"
+```
+
+### Method 2: Direct Commands
+
+```bash
+# Quick chat
+ai-cli chat "Explain async programming in Python"
+
+# With specific provider
+ai-cli chat "Review this code for security issues" --provider claude
 
 # Stream long responses
-ai-cli chat "Write a detailed tutorial on Docker" --stream --provider openai
+ai-cli chat "Write a comprehensive API documentation" --stream
 ```
 
-### Code Analysis with MCP
+## 🛠️ Terminal Commands Reference
+
+### Two Entry Points
+
+| Command | Description | Use Case |
+|---------|-------------|----------|
+| `ai` | Smart interactive mode | Daily development, code analysis |
+| `ai-cli` | Full CLI with explicit commands | Scripting, automation, specific tasks |
+
+### Core Commands (Both CLIs)
+
+#### Chat Commands
 ```bash
-# Connect to GitHub
-ai-cli mcp connect github --token ghp_your_token_here
+# Basic chat
+ai-cli chat "Your question here"
+ai-cli chat "Your question" --provider claude --stream --max-tokens 2000
 
-# Search for authentication patterns
-ai-cli mcp search github "authentication middleware" --owner myorg --repo webapp
-
-# Analyze specific repository
-ai-cli mcp search github "TODO|FIXME" --owner myorg --repo backend
-ai-cli chat "Review these code issues and prioritize them" --provider claude
+# Options:
+--provider, -p     # AI provider: openai, claude, azure_openai, ollama
+--model, -m        # Specific model (e.g., gpt-4, claude-3-sonnet)
+--stream, -s       # Enable streaming responses
+--max-tokens       # Maximum response tokens
+--temperature, -t  # Creativity level (0.0-1.0)
 ```
 
-### Configuration Management
+#### AI Provider Management
 ```bash
-# Initialize and edit config
-ai-cli config-cmd --init
-ai-cli config-cmd --edit
-
-# Check provider status
+# List all providers and their status
 ai-cli providers
 
-# View current settings
-ai-cli config-cmd --show
+# Shows:
+# - Connection status
+# - Available models
+# - Current configuration
 ```
 
-## 🔧 Configuration
+#### Configuration Management
+```bash
+# Show current configuration
+ai-cli config --show
 
-### Provider Setup
+# Edit configuration file
+ai-cli config --edit
 
-Edit `~/.config/ai-cli/config.yaml`:
+# Initialize new configuration
+ai-cli config --init
+```
+
+#### MCP (Model Context Protocol) Commands
+```bash
+# Connect to GitHub/GitLab
+ai-cli mcp connect github --token ghp_your_token_here
+ai-cli mcp connect gitlab --token glpat_your_token_here
+
+# Search code repositories
+ai-cli mcp search github "authentication middleware" --owner myorg --repo webapp
+ai-cli mcp search gitlab "database connection" --owner team --repo backend
+```
+
+#### Global Options
+```bash
+# Available for all commands
+--config-dir PATH    # Custom configuration directory
+--verbose, -v        # Enable verbose logging
+--version           # Show version information
+--help              # Show help information
+```
+
+## 🤖 Interactive CLI Modes
+
+### Smart Interactive Mode (`ai` command)
+
+**Intelligent assistant that automatically uses tools based on your queries**
+
+```bash
+# Launch smart mode
+ai
+
+# Available interactive commands:
+/clear              # Clear conversation history
+/context            # Show current context and cached data
+/help               # Show developer help and setup
+/exit               # Exit application
+
+# Example interactions:
+# User: "How does authentication work in this project?"
+# AI: [Automatically searches your repo, analyzes auth code, provides detailed explanation]
+
+# User: "Find all performance bottlenecks"
+# AI: [Searches for performance patterns, analyzes code, suggests optimizations]
+```
+
+**Features:**
+- **Automatic Tool Selection**: AI chooses appropriate tools
+- **Advanced Reasoning**: Uses o3/o1 models for complex queries
+- **Repository Prioritization**: Searches your own code first
+- **Context Awareness**: Remembers previous interactions
+- **Git Integration**: Detects current repository automatically
+
+### Legacy Interactive Mode
+
+**Command-based interface for explicit control**
+
+```bash
+# Access through ai-cli or ai with legacy flag
+ai-cli interactive
+
+# Available commands:
+/setup [provider]              # Configure AI providers
+/mcp [status|add|remove|test]  # Manage repository connections
+/search <service> <query>      # Direct code search
+/local <query>                 # Search local codebase
+/view <service> <path>         # View specific files
+/analyze <service> <question>  # AI-powered analysis
+/providers                     # Show provider status
+/config                        # Show configuration
+```
+
+## 🔧 Available Tools
+
+### AI Tools (Auto-called in Smart Mode)
+
+| Tool | Description | Usage Example |
+|------|-------------|---------------|
+| `search_code` | Search repositories with NLP optimization | Finds relevant code automatically |
+| `view_file` | Retrieve complete file contents | Gets file content for analysis |
+| `analyze_code_context` | Analyze code patterns and architecture | Provides insights on code structure |
+| `advanced_reasoning` | Apply sophisticated reasoning | Used for complex technical questions |
+
+### Provider Tools
+
+| Provider | Models | Special Features |
+|----------|---------|------------------|
+| **OpenAI** | GPT-4, GPT-4-turbo, o1-mini, o1, o3-mini, o3 | Advanced reasoning, function calling |
+| **Claude** | Claude-3 family | Large context, analytical reasoning |
+| **Azure OpenAI** | Enterprise GPT models | Custom deployments, enterprise features |
+| **Ollama** | Llama2, local models | Local processing, privacy |
+
+### MCP Integration Tools
+
+| Service | Capabilities | Authentication |
+|---------|--------------|----------------|
+| **GitHub** | Code search, file access, repository listing | Personal access token |
+| **GitLab** | Project search, file retrieval, custom instances | Personal access token |
+
+## 📊 Interactive CLI Process Flow
+
+```mermaid
+graph TD
+    A[User Input] --> B{Command Type}
+    B -->|Natural Language| C[Smart Mode]
+    B -->|Explicit Command| D[Legacy Mode]
+    
+    C --> E[Complexity Analysis]
+    E --> F{Reasoning Needed?}
+    F -->|Yes| G[Apply o3/o1 Reasoning]
+    F -->|No| H[Standard Processing]
+    
+    G --> I[Tool Selection]
+    H --> I
+    I --> J[Repository Search]
+    J --> K[Content Retrieval]
+    K --> L[AI Analysis]
+    L --> M[Response Generation]
+    M --> N[Context Storage]
+    
+    D --> O[Direct Tool Execution]
+    O --> P[Structured Output]
+    P --> Q[Manual Next Steps]
+    
+    N --> R[Display Response]
+    Q --> R
+    R --> S[Cache Results]
+    S --> T[Ready for Next Query]
+```
+
+## ⚙️ Advanced Reasoning System
+
+### Reasoning Modes (Automatic Selection)
+
+| Mode | Description | Use Cases |
+|------|-------------|-----------|
+| **Step-by-Step** | Systematic problem breakdown | Complex algorithms, debugging |
+| **Chain-of-Thought** | Logical progression analysis | Code review, architecture decisions |
+| **Tree-of-Thought** | Multi-path exploration | System design, optimization |
+| **Metacognitive** | Thinking about thinking | Learning, knowledge synthesis |
+| **Socratic** | Question-guided discovery | Understanding existing code |
+| **Analytical** | Framework-based analysis | Security review, performance audit |
+
+### Complexity Detection
+
+| Level | Criteria | Model Selection |
+|-------|----------|-----------------|
+| **Simple** | Basic queries, syntax questions | Standard GPT-4 |
+| **Moderate** | Implementation questions | GPT-4-turbo |
+| **Complex** | Architecture, design patterns | o1-mini |
+| **Expert** | System design, optimization | o3-mini/o3 |
+
+### Model Optimization
+
+- **o3/o1 Models**: Advanced reasoning with specialized prompts
+- **Claude Models**: Analytical and socratic reasoning
+- **GPT-4 Models**: General purpose reasoning
+- **Automatic Selection**: Based on query complexity and model capabilities
+
+## 🔐 Configuration
+
+### Provider Configuration
+
+Create `~/.config/ai-cli/config.yaml`:
 
 ```yaml
 providers:
   openai:
     api_key: "sk-your-openai-key"
-    model: "gpt-4"
-  
+    model: "o3-mini"  # Default model with reasoning
+    
   claude:
     api_key: "sk-ant-your-claude-key"
     model: "claude-3-sonnet-20240229"
-  
+    
   azure_openai:
     endpoint: "https://your-resource.openai.azure.com/"
     api_key: "your-azure-key"
     deployment_name: "gpt-4"
-  
+    
   ollama:
     base_url: "http://localhost:11434"
     model: "llama2"
 
 mcp:
-  gitlab:
-    auth_token: "glpat-your-gitlab-token"
   github:
     auth_token: "ghp_your-github-token"
+  gitlab:
+    auth_token: "glpat_your-gitlab-token"
+    url: "https://gitlab.com"  # Optional: custom instance
 
 default_provider: "openai"
 ```
@@ -128,249 +330,260 @@ default_provider: "openai"
 ### Environment Variables
 
 ```bash
+# AI Provider Keys
 export AI_CLI_OPENAI_API_KEY="sk-your-key"
 export AI_CLI_CLAUDE_API_KEY="sk-ant-your-key"
-export AI_CLI_GITLAB_AUTH_TOKEN="glpat-your-token"
+export AI_CLI_AZURE_OPENAI_API_KEY="your-azure-key"
+
+# Repository Access
 export AI_CLI_GITHUB_AUTH_TOKEN="ghp_your-token"
+export AI_CLI_GITLAB_AUTH_TOKEN="glpat_your-token"
+
+# Optional: Custom configuration directory
+export AI_CLI_CONFIG_DIR="~/.config/ai-cli"
 ```
 
-## 🛠️ Commands
+### Provider Setup Examples
 
-### Chat
+#### OpenAI Setup
+```bash
+# Get API key from https://platform.openai.com/api-keys
+ai-cli config --init
+# Edit config.yaml to add your OpenAI key
+```
+
+#### Claude Setup
+```bash
+# Get API key from https://console.anthropic.com/
+# Add to config.yaml:
+# claude:
+#   api_key: "sk-ant-your-key"
+```
+
+#### GitHub Integration
+```bash
+# 1. Generate token at https://github.com/settings/tokens
+# 2. Required scopes: repo (for private repos) or public_repo
+ai-cli mcp connect github --token ghp_your_token_here
+```
+
+#### GitLab Integration
+```bash
+# 1. Generate token at https://gitlab.com/-/profile/personal_access_tokens
+# 2. Required scopes: read_api, read_repository
+ai-cli mcp connect gitlab --token glpat_your_token_here
+```
+
+## 🎯 Usage Examples
+
+### Smart Interactive Mode Examples
 
 ```bash
-# Basic chat
-ai-cli chat "Your message here"
+# Launch smart mode
+ai
 
-# Options
-ai-cli chat "Message" --provider claude --model claude-3-opus-20240229 --stream --max-tokens 2000 --temperature 0.8
+# Code Analysis
+"How does authentication work in this project?"
+"Find all TODO comments and prioritize them"
+"Explain the database schema in this codebase"
+
+# Architecture Questions
+"What's the overall architecture of this application?"
+"How is error handling implemented?"
+"Show me the API endpoints and their purposes"
+
+# Code Review
+"Review this function for security vulnerabilities"
+"Find performance bottlenecks in the search functionality"
+"Check for unused imports and dead code"
+
+# Learning and Documentation
+"Explain how the payment processing works"
+"Generate API documentation for this service"
+"Create a deployment guide for this application"
 ```
 
-### Providers
+### Direct Command Examples
 
 ```bash
-# List all providers and their status
-ai-cli providers
+# Quick AI Chat
+ai-cli chat "Explain the difference between async and sync programming"
+
+# Provider-Specific Queries
+ai-cli chat "Review this code for bugs" --provider claude --temperature 0.2
+
+# Streaming for Long Responses
+ai-cli chat "Write comprehensive unit tests for this API" --stream --max-tokens 3000
+
+# Repository Analysis
+ai-cli mcp search github "authentication middleware" --owner myorg --repo webapp
+ai-cli chat "Analyze the authentication patterns found in the search results" --provider claude
+
+# Configuration Management
+ai-cli providers  # Check provider status
+ai-cli config --show  # View current configuration
 ```
 
-### MCP Integration
-
-```bash
-# Connect to services
-ai-cli mcp connect gitlab --token your-token
-ai-cli mcp connect github --token your-token
-
-# Search code
-ai-cli mcp search github "search query" --owner org --repo repository
-ai-cli mcp search gitlab "function name" --owner team --repo project
-```
-
-### Configuration
-
-```bash
-# Show current config
-ai-cli config-cmd --show
-
-# Edit config file
-ai-cli config-cmd --edit
-
-# Initialize new config
-ai-cli config-cmd --init
-```
-
-## 🔌 MCP Integration
-
-The CLI integrates with the Model Context Protocol to provide AI providers with access to your code repositories.
-
-### Supported Services
-
-- **GitLab**: Project access, code search, file retrieval, commit history
-- **GitHub**: Repository browsing, advanced code search, file operations
-
-### Example Workflow
-
-```bash
-# 1. Connect to GitHub
-ai-cli mcp connect github --token ghp_your_token
-
-# 2. Search for authentication code
-ai-cli mcp search github "authentication" --owner myorg --repo webapp
-
-# 3. Analyze with AI
-ai-cli chat "Review this authentication code for security issues" --provider claude
-```
-
-## 🏗️ Architecture
-
-```
-CLI Layer (Typer)
-    ↓
-Provider Factory
-    ↓
-AI Providers (OpenAI, Claude, Azure, Ollama)
-    ↓
-MCP Client
-    ↓
-MCP Servers (GitLab, GitHub)
-```
-
-### Key Components
-
-- **Provider Layer**: Unified interface for different AI providers
-- **MCP Integration**: Protocol implementation for code repository access
-- **Configuration Management**: Flexible YAML + environment variable configuration
-- **CLI Interface**: Rich terminal interface with streaming support
-
-## 🚀 Advanced Usage
-
-### Multi-Provider Comparison
-
-```bash
-# Compare responses from different providers
-ai-cli chat "Explain REST APIs" --provider openai > openai.txt
-ai-cli chat "Explain REST APIs" --provider claude > claude.txt
-```
-
-### Code Analysis Pipeline
+### Automation Examples
 
 ```bash
 #!/bin/bash
 # Automated code review script
 
-REPO_OWNER="myorg"
-REPO_NAME="myproject"
-
 # Search for potential issues
-ISSUES=$(ai-cli mcp search github "TODO|FIXME|HACK" --owner $REPO_OWNER --repo $REPO_NAME)
+ISSUES=$(ai-cli mcp search github "TODO|FIXME|HACK" --owner myorg --repo myproject)
 
 # Analyze with AI
-ai-cli chat "Prioritize and suggest fixes for these code issues: $ISSUES" --provider claude --max-tokens 3000
-```
+ai-cli chat "Prioritize and suggest fixes for: $ISSUES" --provider claude --max-tokens 2000
 
-### Documentation Generation
-
-```bash
-# Generate docs for a project
+# Generate documentation
 ai-cli mcp search github "*.py" --owner myorg --repo myapi
 ai-cli chat "Generate API documentation based on these Python files" --provider openai --model gpt-4
 ```
 
-## 🔒 Security
+## 🏗️ Architecture Overview
 
-- **Token Security**: Store sensitive tokens in environment variables
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         CLI Layer                                │
+│  ┌─────────────┐                    ┌─────────────────────────┐ │
+│  │ ai (Smart)  │                    │ ai-cli (Full Commands)  │ │
+│  └─────────────┘                    └─────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+┌─────────────────────────────────────────────────────────────────┐
+│                    Core Intelligence Layer                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
+│  │ Reasoning   │  │ NLP Search  │  │ Context Management      │ │
+│  │ Engine      │  │ Optimizer   │  │ & Caching              │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+┌─────────────────────────────────────────────────────────────────┐
+│                      Provider Layer                             │
+│  ┌─────────┐  ┌─────────┐  ┌─────────────┐  ┌─────────────────┐ │
+│  │ OpenAI  │  │ Claude  │  │ Azure OpenAI│  │ Ollama (Local)  │ │
+│  └─────────┘  └─────────┘  └─────────────┘  └─────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+┌─────────────────────────────────────────────────────────────────┐
+│                    MCP Integration Layer                         │
+│  ┌─────────────────────────┐    ┌─────────────────────────────┐ │
+│  │ GitHub Integration      │    │ GitLab Integration          │ │
+│  │ • Code Search          │    │ • Project Search            │ │
+│  │ • File Retrieval       │    │ • File Access               │ │
+│  │ • Repository Listing   │    │ • Custom Instances          │ │
+│  └─────────────────────────┘    └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+- **CLI Layer**: Dual interface (smart vs explicit commands)
+- **Intelligence Layer**: Reasoning, search optimization, context management
+- **Provider Layer**: Multi-AI provider support with automatic selection
+- **MCP Layer**: Repository integration for code context
+
+## 🔒 Security & Privacy
+
+### Token Security
+- **Local Storage**: API keys stored in local config files only
+- **Environment Variables**: Support for secure token injection
 - **Minimal Permissions**: Use least-privilege access tokens
-- **Local Processing**: Code analysis happens locally through MCP
-- **No Data Storage**: Repository data isn't stored by the CLI
+- **No Data Transmission**: Repository data processed locally through MCP
+
+### Privacy Features
+- **Local Processing**: Code analysis happens locally
+- **No Remote Storage**: Your code never leaves your machine
+- **Selective Sharing**: Only search results sent to AI providers
+- **Token Rotation**: Easy token updates and management
+
+### Recommended Token Permissions
+
+**GitHub Token Scopes:**
+- `repo` (for private repositories)
+- `public_repo` (for public repositories only)
+
+**GitLab Token Scopes:**
+- `read_api` (for API access)
+- `read_repository` (for repository access)
 
 ## 🧪 Development
-
-### Setup Development Environment
-
-```bash
-# Clone and setup
-git clone https://github.com/yourusername/ai-cli.git
-cd ai-cli
-
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Code formatting
-black ai_cli/
-ruff check ai_cli/
-
-# Type checking
-mypy ai_cli/
-```
 
 ### Project Structure
 
 ```
 ai_cli/
-├── cli/           # CLI interface and commands
-├── providers/     # AI provider implementations
-├── mcp/          # MCP client and servers
-├── core/         # Configuration and utilities
-└── utils/        # Helper functions
+├── cli/                 # CLI interfaces
+│   ├── main.py         # Full CLI commands (ai-cli)
+│   ├── app.py          # Smart interactive mode (ai)
+│   ├── smart_interactive.py  # AI-powered interactive mode
+│   └── interactive.py  # Legacy command-based mode
+├── core/               # Core intelligence
+│   ├── reasoning.py    # Advanced reasoning system
+│   ├── nlp_search.py   # NLP search optimization
+│   ├── context.py      # Context management
+│   └── tools.py        # Tool execution system
+├── providers/          # AI provider implementations
+│   ├── openai_provider.py
+│   ├── claude_provider.py
+│   ├── azure_openai_provider.py
+│   └── ollama_provider.py
+├── mcp/               # MCP integration
+│   ├── simple_client.py    # GitHub/GitLab client
+│   ├── github_server.py    # GitHub MCP server
+│   └── gitlab_server.py    # GitLab MCP server
+└── utils/             # Utility functions
 
-docs/             # Documentation
-tests/            # Test suite
+tests/                 # Test suite
+├── unit/             # Unit tests
+└── integration/      # Integration tests
+
+docs/                 # Documentation
+├── architecture.md   # Detailed architecture
+├── cli-reference.md  # Complete command reference
+├── installation.md   # Installation guide
+├── usage.md          # Usage examples
+└── mcp-integration.md # MCP setup guide
 ```
 
-## 📋 Command Reference
+### Development Commands
 
-### Global Options
 ```bash
-ai-cli [OPTIONS] COMMAND [ARGS]...
+# Setup development environment
+git clone https://github.com/yourusername/ai-cli.git
+cd ai-cli
+python -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]"
 
-Global Options:
-  --config-dir PATH    Configuration directory path
-  --verbose, -v        Enable verbose logging
-  --help              Show help
+# Run tests
+pytest                    # All tests
+pytest tests/unit/        # Unit tests only
+pytest tests/integration/ # Integration tests only
+pytest --cov=ai_cli      # With coverage
+
+# Code quality
+black ai_cli/            # Format code
+ruff check ai_cli/       # Lint code
+mypy ai_cli/             # Type checking
+pre-commit install       # Setup pre-commit hooks
+
+# Build and distribution
+python -m build          # Build distribution packages
+pip install dist/*.whl   # Install built package
 ```
 
-### Core Commands
+### Contributing
 
-#### Chat Command
-```bash
-ai-cli chat MESSAGE [OPTIONS]
-
-Arguments:
-  MESSAGE               Message to send to AI [required]
-
-Options:
-  --provider, -p TEXT   AI provider (openai, claude, azure_openai, ollama)
-  --model, -m TEXT      Model to use
-  --stream, -s          Stream response
-  --max-tokens INTEGER  Maximum tokens in response
-  --temperature, -t FLOAT Temperature for generation (0.0-1.0)
-```
-
-#### Providers Command
-```bash
-ai-cli providers
-
-# Lists all configured providers with their connection status and available models
-```
-
-#### Configuration Command
-```bash
-ai-cli config-cmd [OPTIONS]
-
-Options:
-  --show     Show current configuration
-  --edit     Edit configuration file in default editor
-  --init     Initialize new configuration with defaults
-```
-
-### MCP Commands
-
-#### Connect to Services
-```bash
-ai-cli mcp connect SERVICE [OPTIONS]
-
-Arguments:
-  SERVICE              Service to connect to (gitlab, github)
-
-Options:
-  --token TEXT         Authentication token [required]
-  --url TEXT           Base URL for service (optional)
-```
-
-#### Search Code
-```bash
-ai-cli mcp search SERVICE QUERY [OPTIONS]
-
-Arguments:
-  SERVICE              Service to search (gitlab, github)
-  QUERY                Search query
-
-Options:
-  --owner TEXT         Repository owner
-  --repo TEXT          Repository name
-```
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes
+4. Add tests for new functionality
+5. Run the test suite: `pytest`
+6. Commit your changes: `git commit -m 'Add amazing feature'`
+7. Push to the branch: `git push origin feature/amazing-feature`
+8. Submit a pull request
 
 ## 📚 Documentation
 
@@ -378,30 +591,33 @@ Options:
 **Start here for comprehensive guides and navigation**
 
 ### Core Documentation
-- **[📖 Installation Guide](docs/installation.md)** - Complete setup instructions for all providers
-- **[📋 CLI Reference](docs/cli-reference.md)** - Complete command reference with syntax and examples
-- **[🚀 Usage Guide](docs/usage.md)** - Workflows, best practices, and advanced usage patterns  
-- **[🔌 MCP Integration](docs/mcp-integration.md)** - GitLab/GitHub integration for code context
-- **[🏗️ Architecture Overview](docs/architecture.md)** - System design and scalability patterns
+- **[📖 Installation Guide](docs/installation.md)** - Complete setup instructions
+- **[📋 CLI Reference](docs/cli-reference.md)** - All commands with examples
+- **[🚀 Usage Guide](docs/usage.md)** - Workflows and best practices
+- **[🔌 MCP Integration](docs/mcp-integration.md)** - Repository integration setup
+- **[🏗️ Architecture Overview](docs/architecture.md)** - System design details
 
 ### Quick References
+
 | Topic | Link | Description |
 |-------|------|-------------|
-| **Getting Started** | [Installation](docs/installation.md) | Setup AI CLI in 5 minutes |
-| **All Commands** | [CLI Reference](docs/cli-reference.md) | Complete command syntax guide |
-| **Basic Commands** | [Usage - Basic Commands](docs/usage.md#basic-commands) | Essential CLI operations |
-| **Code Integration** | [MCP Integration](docs/mcp-integration.md) | Connect to GitLab/GitHub |
-| **Advanced Workflows** | [Usage - Advanced Usage](docs/usage.md#advanced-usage) | Power user techniques |
-| **Troubleshooting** | [Installation - Troubleshooting](docs/installation.md#troubleshooting) | Common issues and solutions |
+| **Setup** | [Installation](docs/installation.md) | Get started in 5 minutes |
+| **Commands** | [CLI Reference](docs/cli-reference.md) | Complete command syntax |
+| **Interactive Mode** | [Usage - Interactive](docs/usage.md#interactive-modes) | Smart assistant usage |
+| **Code Integration** | [MCP Integration](docs/mcp-integration.md) | Connect repositories |
+| **Advanced Features** | [Usage - Advanced](docs/usage.md#advanced-usage) | Power user techniques |
+| **Troubleshooting** | [Installation - Troubleshooting](docs/installation.md#troubleshooting) | Common issues |
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run the test suite
-6. Submit a pull request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+1. Fork and clone the repository
+2. Create a virtual environment and install dependencies
+3. Run tests to ensure everything works
+4. Make your changes and add tests
+5. Submit a pull request
 
 ## 📄 License
 
@@ -409,17 +625,18 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- [Anthropic](https://anthropic.com) for Claude and MCP protocol
-- [OpenAI](https://openai.com) for GPT models
+- [Anthropic](https://anthropic.com) for Claude AI and MCP protocol
+- [OpenAI](https://openai.com) for GPT models and reasoning capabilities
 - [Ollama](https://ollama.ai) for local model support
 - [Typer](https://typer.tiangolo.com) for the excellent CLI framework
 
 ## 📞 Support
 
-- GitHub Issues: [Report bugs and request features](https://github.com/yourusername/ai-cli/issues)
-- Documentation: [Full documentation](docs/)
-- Examples: [Usage examples](docs/usage.md)
+- **GitHub Issues**: [Report bugs and request features](https://github.com/yourusername/ai-cli/issues)
+- **Documentation**: [Full documentation](docs/)
+- **Examples**: [Usage examples](docs/usage.md)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/ai-cli/discussions)
 
 ---
 
-**AI CLI** - Bringing the power of multiple AI providers to your terminal with seamless code integration.
+**AI CLI** - Your intelligent code assistant that understands your repositories and provides advanced AI-powered analysis and development support.
