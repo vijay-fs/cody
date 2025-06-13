@@ -1,6 +1,9 @@
 import asyncio
 import shlex
-from typing import Optional
+import os
+import subprocess
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
@@ -29,7 +32,8 @@ class InteractiveCLI:
 - `/help` - Show this help message
 - `/setup` - Add API keys (OpenAI, Claude, etc.)
 - `/mcp` - Configure MCP connections (GitLab, GitHub)
-- `/search` - Search GitHub/GitLab repositories
+- `/search` - Search GitHub/GitLab repositories OR local codebase
+- `/local` - Search and analyze local codebase with AI
 - `/view` - View file content from search results
 - `/analyze` - Analyze code with AI after searching
 - `/providers` - Show AI provider status
@@ -47,6 +51,7 @@ class InteractiveCLI:
 - `Write a function --stream`
 - `/search github "authentication function"`
 - `/search gitlab "bug fix" --owner myorg --repo backend`
+- `/local "websocket architecture"` - Search your local codebase
 - `/view github owner/repo path/to/file.py`
 - `/analyze github "How does authentication work?" --query "login function"`
         """
@@ -422,16 +427,22 @@ class InteractiveCLI:
             console.print(f"[green]✓ {service_choice} configuration removed[/green]")
 
     async def handle_search_command(self, args: list):
-        """Handle search command for GitHub/GitLab repositories."""
+        """Handle search command for GitHub/GitLab repositories or local codebase."""
         if len(args) < 2:
             console.print("[red]Usage: /search <service> <query> [--owner <owner>] [--repo <repo>][/red]")
             console.print("[dim]Example: /search github \"authentication function\"[/dim]")
             console.print("[dim]Example: /search gitlab \"bug fix\" --owner myorg --repo backend[/dim]")
+            console.print("[dim]Example: /search local \"websocket architecture\"[/dim]")
             return
             
         service = args[0].lower()
-        if service not in ["github", "gitlab"]:
-            console.print("[red]Service must be 'github' or 'gitlab'[/red]")
+        if service not in ["github", "gitlab", "local"]:
+            console.print("[red]Service must be 'github', 'gitlab', or 'local'[/red]")
+            return
+            
+        # Handle local search
+        if service == "local":
+            await self.handle_local_command(args[1:])
             return
             
         # Parse query and options (shlex will have handled quotes properly)
@@ -982,6 +993,237 @@ class InteractiveCLI:
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
+    async def handle_local_command(self, args: list):
+        """Handle local codebase search and analysis."""
+        if not args:
+            console.print("[red]Usage: /local <query> [--path <path>] [--provider <provider>] [--ext <extensions>][/red]")
+            console.print("[dim]Example: /local \"websocket architecture\"[/dim]")
+            console.print("[dim]Example: /local \"authentication\" --path ./src --ext js,ts,py[/dim]")
+            return
+            
+        query = args[0]
+        
+        # Parse remaining arguments
+        search_path = "."
+        provider = self.config.default_provider
+        extensions = None
+        
+        i = 1
+        while i < len(args):
+            if args[i] == "--path" and i + 1 < len(args):
+                search_path = args[i + 1]
+                i += 2
+            elif args[i] == "--provider" and i + 1 < len(args):
+                provider = args[i + 1]
+                i += 2
+            elif args[i] == "--ext" and i + 1 < len(args):
+                extensions = args[i + 1].split(",")
+                i += 2
+            else:
+                i += 1
+        
+        await self.search_local_codebase(query, search_path, provider, extensions)
+
+    def search_files_with_ripgrep(self, query: str, search_path: str = ".", extensions: List[str] = None) -> List[Dict[str, Any]]:
+        """Search files using ripgrep for better performance."""
+        try:
+            # Build ripgrep command
+            cmd = ["rg", "--json", "--smart-case", "--max-count", "5", query]
+            
+            if extensions:
+                for ext in extensions:
+                    cmd.extend(["--type-add", f"custom:*.{ext.strip()}", "--type", "custom"])
+            
+            # Add path
+            cmd.append(search_path)
+            
+            # Run ripgrep
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0 and result.returncode != 1:  # 1 means no matches found
+                console.print(f"[yellow]Ripgrep error: {result.stderr}[/yellow]")
+                return self.search_files_with_grep(query, search_path, extensions)
+            
+            # Parse JSON output
+            matches = []
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                try:
+                    import json
+                    data = json.loads(line)
+                    if data.get('type') == 'match':
+                        match_data = data['data']
+                        matches.append({
+                            'file': match_data['path']['text'],
+                            'line_number': match_data['line_number'],
+                            'line_content': match_data['lines']['text'],
+                            'absolute_offset': match_data.get('absolute_offset', 0)
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    continue
+            
+            return matches
+            
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # Fallback to grep
+            return self.search_files_with_grep(query, search_path, extensions)
+
+    def search_files_with_grep(self, query: str, search_path: str = ".", extensions: List[str] = None) -> List[Dict[str, Any]]:
+        """Fallback search using grep."""
+        try:
+            cmd = ["grep", "-r", "-n", "-i", "--max-count=5"]
+            
+            if extensions:
+                for ext in extensions:
+                    cmd.extend(["--include", f"*.{ext.strip()}"])
+            
+            cmd.extend([query, search_path])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            matches = []
+            for line in result.stdout.strip().split('\n'):
+                if ':' in line:
+                    parts = line.split(':', 2)
+                    if len(parts) >= 3:
+                        matches.append({
+                            'file': parts[0],
+                            'line_number': int(parts[1]) if parts[1].isdigit() else 0,
+                            'line_content': parts[2],
+                            'absolute_offset': 0
+                        })
+            
+            return matches
+            
+        except (subprocess.TimeoutExpired, Exception):
+            return []
+
+    def get_file_content_around_match(self, file_path: str, line_number: int, context_lines: int = 10) -> str:
+        """Get file content around a specific line."""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+            
+            start = max(0, line_number - context_lines - 1)
+            end = min(len(lines), line_number + context_lines)
+            
+            context = []
+            for i in range(start, end):
+                prefix = ">>> " if i == line_number - 1 else "    "
+                context.append(f"{prefix}{i+1:4}: {lines[i].rstrip()}")
+            
+            return '\n'.join(context)
+            
+        except Exception as e:
+            return f"Error reading file: {e}"
+
+    async def search_local_codebase(self, query: str, search_path: str = ".", provider: str = None, extensions: List[str] = None):
+        """Search local codebase and analyze with AI."""
+        console.print(f"[blue]Searching local codebase for: {query}[/blue]")
+        console.print(f"[dim]Path: {search_path}[/dim]")
+        if extensions:
+            console.print(f"[dim]Extensions: {', '.join(extensions)}[/dim]")
+        
+        # Search for files
+        matches = self.search_files_with_ripgrep(query, search_path, extensions)
+        
+        if not matches:
+            console.print("[yellow]No matches found in local codebase.[/yellow]")
+            return
+        
+        console.print(f"[green]Found {len(matches)} matches in local files:[/green]")
+        
+        # Show search results
+        table = Table(title="Local Search Results")
+        table.add_column("File", style="cyan")
+        table.add_column("Line", style="yellow")
+        table.add_column("Preview", style="white")
+        
+        code_context = []
+        file_contents = {}
+        
+        for match in matches[:10]:  # Limit to top 10 matches
+            file_path = match['file']
+            line_num = match['line_number']
+            preview = match['line_content'][:80] + "..." if len(match['line_content']) > 80 else match['line_content']
+            
+            table.add_row(
+                file_path,
+                str(line_num),
+                preview.strip()
+            )
+            
+            # Get context around the match
+            if file_path not in file_contents:
+                context = self.get_file_content_around_match(file_path, line_num, context_lines=15)
+                file_contents[file_path] = context
+                
+                code_context.append({
+                    'file': file_path,
+                    'line': line_num,
+                    'content': context,
+                    'match_line': match['line_content'].strip()
+                })
+        
+        console.print(table)
+        
+        # Analyze with AI
+        if code_context:
+            console.print(f"\n[blue]Analyzing {len(code_context)} code sections with AI...[/blue]")
+            await self.analyze_local_code_with_ai(query, code_context, provider or self.config.default_provider)
+        else:
+            console.print("[yellow]No code content available for analysis.[/yellow]")
+
+    async def analyze_local_code_with_ai(self, query: str, code_context: List[Dict[str, Any]], provider: str):
+        """Analyze local code with AI."""
+        
+        # Show what we're analyzing
+        console.print(f"\n[bold blue]Analyzing Local Code Files:[/bold blue]")
+        for i, context in enumerate(code_context, 1):
+            console.print(f"{i}. {context['file']}:{context['line']}")
+        console.print()
+        
+        # Prepare context message
+        context_message = f"User Query: {query}\n\n"
+        context_message += "I found the following code in the local codebase that matches your query:\n\n"
+        
+        for i, context in enumerate(code_context, 1):
+            context_message += f"## File {i}: {context['file']}\n"
+            context_message += f"**Match on line {context['line']}:** `{context['match_line']}`\n\n"
+            context_message += "**Code Context:**\n"
+            context_message += f"```\n{context['content']}\n```\n\n"
+        
+        context_message += "Based on the ACTUAL CODE from this local codebase, please:\n"
+        context_message += "1. Answer the user's query with specific examples from the code above\n"
+        context_message += "2. Explain how the code works and any patterns you see\n"
+        context_message += "3. Provide implementation guidance based on the existing code\n"
+        context_message += "4. Suggest improvements or best practices\n"
+        context_message += "5. Reference specific files and line numbers in your response\n"
+        context_message += "6. If the query is about architecture, explain the overall structure you can infer from these examples"
+        
+        try:
+            provider_config = self.config.get_provider_config(provider).model_dump()
+            ai_provider = ProviderFactory.create_provider(provider, provider_config)
+            
+            async with ai_provider:
+                messages = [AIMessage(role="user", content=context_message)]
+                
+                console.print(f"[blue]Getting analysis from {provider}...[/blue]")
+                
+                with console.status(f"Analyzing local code with {provider}..."):
+                    response = await ai_provider.chat_completion(messages)
+                
+                console.print(f"\n[bold green]Local Code Analysis ({provider}):[/bold green]")
+                console.print()
+                console.print(Markdown(response.content))
+                
+                if response.usage:
+                    console.print(f"\n[dim]Tokens used: {response.usage}[/dim]")
+                    
+        except Exception as e:
+            console.print(f"[red]AI Analysis error: {e}[/red]")
+
     async def run(self):
         """Main interactive loop."""
         self.show_welcome()
@@ -1015,6 +1257,8 @@ class InteractiveCLI:
                         await self.handle_mcp_command(args)
                     elif command == "search":
                         await self.handle_search_command(args)
+                    elif command == "local":
+                        await self.handle_local_command(args)
                     elif command == "view":
                         await self.handle_view_command(args)
                     elif command == "analyze":

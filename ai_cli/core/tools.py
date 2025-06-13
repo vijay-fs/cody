@@ -233,9 +233,31 @@ class ToolExecutor:
                 # Sort by relevance (score if available)
                 unique_results.sort(key=lambda x: x.get('score', 0), reverse=True)
                 
+                # Fetch content for top 3 results to enable advanced reasoning
+                enhanced_results = []
+                for i, result in enumerate(unique_results[:10]):
+                    enhanced_result = result.copy()
+                    
+                    # Fetch content for top 3 results
+                    if i < 3:
+                        try:
+                            file_data = await client.get_file_content(
+                                result.get("owner", ""),
+                                result.get("repo_name", ""),
+                                result.get("path", "")
+                            )
+                            if "content" in file_data and not file_data.get("error"):
+                                enhanced_result["content"] = file_data["content"][:3000]  # Limit to 3000 chars
+                                enhanced_result["size"] = file_data.get("size", 0)
+                        except Exception:
+                            # If fetching content fails, continue without it
+                            pass
+                    
+                    enhanced_results.append(enhanced_result)
+                
                 # Cache the results
                 cache_data = {
-                    "results": unique_results[:15],
+                    "results": enhanced_results[:15],
                     "total_count": len(unique_results)
                 }
                 self.context.save_search_result(query, service, cache_data)
@@ -250,7 +272,7 @@ class ToolExecutor:
                     "owner": owner,
                     "repo": repo,
                     "total_count": len(unique_results),
-                    "results": unique_results[:10],  # Return top 10
+                    "results": enhanced_results[:10],  # Return top 10 with content
                     "message": f"Found {len(unique_results)} results using NLP-enhanced search for '{query}' on GitHub"
                 }
             finally:
